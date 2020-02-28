@@ -49,7 +49,7 @@ def eval_net(dataloader):
     correct = 0
     total = 0
     total_loss = 0
-    net.eval()  # Why would I do this?
+    net.train(mode=False)
     criterion = nn.CrossEntropyLoss(reduction='mean')
     for data in dataloader:
         images, labels = data
@@ -61,7 +61,7 @@ def eval_net(dataloader):
         correct += (predicted == labels.data).sum()
         loss = criterion(outputs, labels)
         total_loss += loss.item()
-    net.train()  # Why would I do this?
+    net.train(mode=True)  # Why would I do this?
     return total_loss / total, correct.float() / total
 
 
@@ -95,11 +95,14 @@ if __name__ == "__main__":
     current_state = net.state_dict()
 
     # Reuse learned params for layers that haven't changed from Q1
-    for key in state_dict:
-        if "fc2" not in key and "fc3" not in key:
-            state_dict[key] = q1_dict[key]
+    for param_name in current_state:
+        if ("fc2" not in param_name and
+            "fc3" not in param_name and
+                q1_state.get(param_name) is not None):
+            current_state[param_name] = q1_state[param_name]
 
-    net.train()  # Why would I do this?
+    net.load_state_dict(current_state)
+    net.train(mode=True)
 
     writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}/')
 
