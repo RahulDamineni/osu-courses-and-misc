@@ -95,13 +95,17 @@ if __name__ == "__main__":
     current_state = net.state_dict()
 
     # Reuse learned params for layers that haven't changed from Q1
+    reusing_params = []
     for param_name in current_state:
         if ("fc2" not in param_name and
             "fc3" not in param_name and
                 q1_state.get(param_name) is not None):
             current_state[param_name] = q1_state[param_name]
+            reusing_params.append(param_name)
 
-    net.load_state_dict(current_state)
+    # print(f'Reusing {len(reusing_params)} params: {reusing_params}')
+    # net.load_state_dict(current_state)
+
     net.train(mode=True)
 
     writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}/')
