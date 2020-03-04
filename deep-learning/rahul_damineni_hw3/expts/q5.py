@@ -7,7 +7,8 @@ import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter  # for pytorch below 1.14
+from torch.utils.tensorboard import SummaryWriter
+from ipdb import launch_ipdb_on_exception
 # from torch.utils.tensorboard import SummaryWriter # for pytorch above or equal 1.14
 
 
@@ -18,24 +19,53 @@ class Net(nn.Module):
         self.conv2 = nn.Conv2d(32, 32, 3, padding=1)
         self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
         self.conv4 = nn.Conv2d(64, 64, 3, padding=1)
+        self.conv5 = nn.Conv2d(64, 128, 3, padding=1)
+        self.conv6 = nn.Conv2d(128, 128, 3, padding=1)
+        self.conv7 = nn.Conv2d(128, 256, 3, padding=1)
+        self.conv8 = nn.Conv2d(256, 256, 3, padding=1)
+        self.conv9 = nn.Conv2d(256, 512, 3, padding=1)
+        self.conv10 = nn.Conv2d(512, 512, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64 * 8 * 8, 512)
-        self.batch_norm = nn.BatchNorm1d(num_features=512)
-        self.fc2 = nn.Linear(512, 512)
-        self.fc3 = nn.Linear(512, 10)
+        self.fc1 = nn.Linear(512 * 4 * 4, 10)
+        for i in range(1, 11):
+            num_features = getattr(self, f'conv{i}').out_channels
+            setattr(self, f'cbn{i}', nn.BatchNorm2d(num_features))
+        # self.fc2 = nn.Linear(512, 10)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
+        x = self.cbn1(x)
         x = F.relu(self.conv2(x))
-        x = self.pool(x)
+        x = self.cbn2(x)
+        # x = self.pool(x)
+        #
         x = F.relu(self.conv3(x))
+        x = self.cbn3(x)
         x = F.relu(self.conv4(x))
+        x = self.cbn4(x)
         x = self.pool(x)
+
+        x = F.relu(self.conv5(x))
+        x = self.cbn5(x)
+        x = F.relu(self.conv6(x))
+        x = self.cbn6(x)
+        # x = self.pool(x)
+
+        x = F.relu(self.conv7(x))
+        x = self.cbn7(x)
+        x = F.relu(self.conv8(x))
+        x = self.cbn8(x)
+        x = self.pool(x)
+
+        x = F.relu(self.conv9(x))
+        x = self.cbn9(x)
+        x = F.relu(self.conv10(x))
+        x = self.cbn10(x)
+        x = self.pool(x)
+
         x = x.view(-1, self.num_flat_features(x))
-        x = F.relu(self.fc1(x))
-        x = self.batch_norm(x)
-        x = self.fc2(x)
-        x = self.fc3(x)
+        x = self.fc1(x)
+
         return x
 
     def num_flat_features(self, x):
@@ -50,26 +80,26 @@ def eval_net(dataloader):
     correct = 0
     total = 0
     total_loss = 0
-    net.train(mode=False)
+    net.eval()  # Why would I do this?
     criterion = nn.CrossEntropyLoss(reduction='mean')
     for data in dataloader:
         images, labels = data
         images, labels = Variable(images).cuda(), Variable(labels).cuda()
-        # images, labels = Variable(images), Variable(labels)
         outputs = net(images)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels.data).sum()
         loss = criterion(outputs, labels)
         total_loss += loss.item()
-    net.train(mode=True)  # Why would I do this?
+    net.train()  # Why would I do this?
     return total_loss / total, correct.float() / total
 
 
 if __name__ == "__main__":
-    BATCH_SIZE = 32  # mini_batch size
-    MAX_EPOCH = 15  # maximum epoch to train
-    EXPT_NAME = input("Expt name >> ")
+    BATCH_SIZE = 256  # mini_batch size
+    MAX_EPOCH = 12  # maximum epoch to train
+    EXPT_NAME = "cstm_best_visual"
+    input(f'Current expt: {EXPT_NAME}')
 
     transform = transforms.Compose(
         [transforms.ToTensor(),
@@ -89,33 +119,17 @@ if __name__ == "__main__":
                'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     print('Building model...')
-    net = Net().cuda()
+    net = Net()
+    net.train()  # Why would I do this?
 
-    # Loading pretrained weights from "mytraining.pth"
-    q1_state = torch.load("mytraining.pth")
-    current_state = net.state_dict()
+    writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}')
+    writer.add_graph(net, torch.Tensor(torch.rand(5, 3, 32, 32)))
 
-    # Reuse learned params for layers that haven't changed from Q1
-    reusing_params = []
-    for param_name in current_state:
-        if ("fc2" not in param_name and
-            "fc3" not in param_name and
-                q1_state.get(param_name) is not None):
-            current_state[param_name] = q1_state[param_name]
-            reusing_params.append(param_name)
-
-    print(f'Reusing {len(reusing_params)} params: {reusing_params}')
-    net.load_state_dict(current_state)
-
-    net.train(mode=True)
-
-    writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}/')
-
+    net.cuda()
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
+    optimizer = optim.AdamW(net.parameters(), lr=1e-3)
 
     print('Start training...')
-    global_steps = 0
     for epoch in range(MAX_EPOCH):  # loop over the dataset multiple times
 
         running_loss = 0.0
@@ -125,7 +139,6 @@ if __name__ == "__main__":
 
             # wrap them in Variable
             inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
-            # inputs, labels = Variable(inputs), Variable(labels)
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -135,7 +148,6 @@ if __name__ == "__main__":
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            global_steps += 1
 
             # print statistics
             running_loss += loss.item()
@@ -149,13 +161,27 @@ if __name__ == "__main__":
         print('EPOCH: %d train_loss: %.5f train_acc: %.5f test_loss: %.5f test_acc %.5f' %
               (epoch+1, train_loss, train_acc, test_loss, test_acc))
 
-        writer.add_scalar('train_loss', train_loss, global_steps)
-        writer.add_scalar('test_loss', test_loss, global_steps)
+        writer.add_scalars("accuracy", {
+            "train": train_acc,
+            "test": test_acc
+        }, epoch + 1)
+        writer.add_scalars("loss", {
+            "train": train_loss,
+            "test": test_loss
+        }, epoch + 1)
+        with launch_ipdb_on_exception():
+            writer.add_histogram(
+                "output_gradient_W",
+                net.fc1.weight,
+                epoch + 1
+            )
+            writer.add_histogram(
+                "output_gradient_b",
+                net.fc1.bias,
+                epoch + 1
+            )
 
-    writer.add_graph(net, inputs)
-
-    writer.flush()
     writer.close()
     print('Finished Training')
     print('Saving model...')
-    torch.save(net.state_dict(), f'{EXPT_NAME}.pth')
+    torch.save(net.state_dict(), f'./models/{EXPT_NAME}.pth')

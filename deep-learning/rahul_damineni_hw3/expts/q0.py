@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter  # for pytorch below 1.14
+from torch.utils.tensorboard import SummaryWriter
 # from torch.utils.tensorboard import SummaryWriter # for pytorch above or equal 1.14
 
 
@@ -20,9 +20,7 @@ class Net(nn.Module):
         self.conv4 = nn.Conv2d(64, 64, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(64 * 8 * 8, 512)
-        self.batch_norm = nn.BatchNorm1d(num_features=512)
-        self.fc2 = nn.Linear(512, 512)
-        self.fc3 = nn.Linear(512, 10)
+        self.fc2 = nn.Linear(512, 10)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -33,9 +31,7 @@ class Net(nn.Module):
         x = self.pool(x)
         x = x.view(-1, self.num_flat_features(x))
         x = F.relu(self.fc1(x))
-        x = self.batch_norm(x)
         x = self.fc2(x)
-        x = self.fc3(x)
         return x
 
     def num_flat_features(self, x):
@@ -50,26 +46,25 @@ def eval_net(dataloader):
     correct = 0
     total = 0
     total_loss = 0
-    net.train(mode=False)
+    net.eval()  # Why would I do this?
     criterion = nn.CrossEntropyLoss(reduction='mean')
     for data in dataloader:
         images, labels = data
         images, labels = Variable(images).cuda(), Variable(labels).cuda()
-        # images, labels = Variable(images), Variable(labels)
         outputs = net(images)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels.data).sum()
         loss = criterion(outputs, labels)
         total_loss += loss.item()
-    net.train(mode=True)  # Why would I do this?
+    net.train()  # Why would I do this?
     return total_loss / total, correct.float() / total
 
 
 if __name__ == "__main__":
     BATCH_SIZE = 32  # mini_batch size
-    MAX_EPOCH = 15  # maximum epoch to train
-    EXPT_NAME = input("Expt name >> ")
+    MAX_EPOCH = 10  # maximum epoch to train
+    EXPT_NAME = "vanilla"
 
     transform = transforms.Compose(
         [transforms.ToTensor(),
@@ -90,32 +85,13 @@ if __name__ == "__main__":
 
     print('Building model...')
     net = Net().cuda()
+    net.train()  # Why would I do this?
 
-    # Loading pretrained weights from "mytraining.pth"
-    q1_state = torch.load("mytraining.pth")
-    current_state = net.state_dict()
-
-    # Reuse learned params for layers that haven't changed from Q1
-    reusing_params = []
-    for param_name in current_state:
-        if ("fc2" not in param_name and
-            "fc3" not in param_name and
-                q1_state.get(param_name) is not None):
-            current_state[param_name] = q1_state[param_name]
-            reusing_params.append(param_name)
-
-    print(f'Reusing {len(reusing_params)} params: {reusing_params}')
-    net.load_state_dict(current_state)
-
-    net.train(mode=True)
-
-    writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}/')
-
+    writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}')
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
 
     print('Start training...')
-    global_steps = 0
     for epoch in range(MAX_EPOCH):  # loop over the dataset multiple times
 
         running_loss = 0.0
@@ -125,7 +101,6 @@ if __name__ == "__main__":
 
             # wrap them in Variable
             inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
-            # inputs, labels = Variable(inputs), Variable(labels)
 
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -135,7 +110,6 @@ if __name__ == "__main__":
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            global_steps += 1
 
             # print statistics
             running_loss += loss.item()
@@ -149,13 +123,16 @@ if __name__ == "__main__":
         print('EPOCH: %d train_loss: %.5f train_acc: %.5f test_loss: %.5f test_acc %.5f' %
               (epoch+1, train_loss, train_acc, test_loss, test_acc))
 
-        writer.add_scalar('train_loss', train_loss, global_steps)
-        writer.add_scalar('test_loss', test_loss, global_steps)
+        writer.add_scalars("accuracy", {
+            "train": train_acc,
+            "test": test_acc
+        }, epoch + 1)
+        writer.add_scalars("loss", {
+            "train": train_loss,
+            "test": test_loss
+        }, epoch + 1)
 
-    writer.add_graph(net, inputs)
-
-    writer.flush()
     writer.close()
     print('Finished Training')
     print('Saving model...')
-    torch.save(net.state_dict(), f'{EXPT_NAME}.pth')
+    torch.save(net.state_dict(), f'./models/{EXPT_NAME}.pth')
