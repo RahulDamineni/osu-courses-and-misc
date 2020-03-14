@@ -1,6 +1,8 @@
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.preprocessing import MinMaxScaler
+from torch.utils.tensorboard import SummaryWriter
 
 
 class AirPassengersDataset(torch.utils.data.Dataset):
@@ -8,8 +10,7 @@ class AirPassengersDataset(torch.utils.data.Dataset):
     def __init__(self,
                  path_to_csv,
                  train=True,
-                 train_per=0.75,
-                 normalize=False):
+                 train_per=0.75):
 
         df = pd.read_csv(path_to_csv)
 
@@ -35,8 +36,6 @@ class AirPassengersDataset(torch.utils.data.Dataset):
         }
 
         return sample
-
-    def normalizer(self):
 
 
 class LSTM(nn.Module):
@@ -73,24 +72,19 @@ class LSTM(nn.Module):
         return out
 
 
-BATCH_SIZE = 10
+EXPT_NAME = "lstm"
+BATCH_SIZE = 16
 NUM_EPOCHS = 10000
 LEARNING_RATE = 0.001
 NUM_HIDDEN_UNITS = 2
 NUM_LAYERS = 1
 
-denormalizer, train = AirPassengersDataset(
-    path_to_csv="./AirPassengers.csv",
-    train=True,
-    normalize=True
-)
+writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}')
+
+train = AirPassengersDataset(path_to_csv="./AirPassengers.csv", train=True)
 train_loader = torch.utils.data.DataLoader(train, batch_size=BATCH_SIZE)
 
-test = AirPassengersDataset(
-    path_to_csv="./AirPassengers.csv",
-    train=False,
-    normalize=False
-)
+test = AirPassengersDataset(path_to_csv="./AirPassengers.csv", train=False)
 test_loader = torch.utils.data.DataLoader(test, batch_size=BATCH_SIZE)
 
 lstm = LSTM(
@@ -98,6 +92,7 @@ lstm = LSTM(
     hidden_size=NUM_HIDDEN_UNITS,
     num_layers=NUM_LAYERS
 )
+lstm.train()
 criterion = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(lstm.parameters(), lr=LEARNING_RATE)
 
@@ -113,10 +108,22 @@ for e, _ in enumerate(range(NUM_EPOCHS), 1):
 
         optimizer.zero_grad()
 
-        loss = criterion(y_hat, y)
-        loss.backward()
+        train_loss = criterion(y_hat, y)
+        train_loss.backward()
 
         optimizer.step()
 
     if e % 500 == 0:
-        print(f'EPOCH: {e}, loss: {loss}')
+        print(f'training: EPOCH: {e}, loss: {train_loss}')
+        writer.add_scalar("train", train_loss.item(), e)
+
+        # Evaluate
+        lstm.eval()
+
+        test_x = torch.Tensor(test.x.values).float().view(-1, 1, 1)
+        test_y = torch.Tensor(test.y.values).float().view(-1, 1)
+        pred_y = lstm.forward(test_x)
+
+        test_loss = criterion(pred_y, test_y)
+        print(f'testing: EPOCH: {e}, loss: {test_loss}')
+        writer.add_scalar("test", test_loss.item(), e)
