@@ -1,0 +1,3 @@
+[submodule "deep-learning/NL2Cypher"]
+	path = deep-learning/NL2Cypher
+	url = https://github.com/ednihs-yahska/CS535_final_project.git
