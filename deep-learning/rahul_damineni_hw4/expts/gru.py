@@ -4,6 +4,13 @@ import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.tensorboard import SummaryWriter
 
+EXPT_NAME = "gru"
+BATCH_SIZE = 16
+NUM_EPOCHS = 10000
+LEARNING_RATE = 0.001
+NUM_HIDDEN_UNITS = 128
+NUM_LAYERS = 1
+
 
 class AirPassengersDataset(torch.utils.data.Dataset):
 
@@ -48,7 +55,7 @@ class LSTM(nn.Module):
         self.hidden_size = hidden_size
         seq_length = 1
 
-        self.lstm = nn.LSTM(
+        self.lstm = nn.GRU(
             input_size=input_token_len * seq_length,
             hidden_size=hidden_size,
             num_layers=num_layers,
@@ -60,10 +67,10 @@ class LSTM(nn.Module):
     def forward(self, x):
 
         h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        c_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        # c_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
 
         # Propagate input through LSTM
-        ula, (h_out, _) = self.lstm(x, (h_0, c_0))
+        out, h_out = self.lstm(x, h_0)
 
         h_out = h_out.view(-1, self.hidden_size)
 
@@ -71,13 +78,6 @@ class LSTM(nn.Module):
 
         return out
 
-
-EXPT_NAME = "lstm"
-BATCH_SIZE = 16
-NUM_EPOCHS = 10000
-LEARNING_RATE = 0.001
-NUM_HIDDEN_UNITS = 2
-NUM_LAYERS = 1
 
 writer = SummaryWriter(log_dir=f'./log/{EXPT_NAME}')
 
@@ -114,9 +114,6 @@ for e, _ in enumerate(range(NUM_EPOCHS), 1):
         optimizer.step()
 
     if e % 500 == 0:
-        print(f'training: EPOCH: {e}, loss: {train_loss}')
-        writer.add_scalar("train", train_loss.item(), e)
-
         # Evaluate
         lstm.eval()
 
@@ -125,5 +122,23 @@ for e, _ in enumerate(range(NUM_EPOCHS), 1):
         pred_y = lstm.forward(test_x)
 
         test_loss = criterion(pred_y, test_y)
+
+        # logging
+        print(f'training: EPOCH: {e}, loss: {train_loss}')
         print(f'testing: EPOCH: {e}, loss: {test_loss}')
-        writer.add_scalar("test", test_loss.item(), e)
+        writer.add_scalars("gru/loss", {
+            "test": test_loss.item(),
+            "train": train_loss.item()
+        }, e)
+
+        lstm.train()
+
+
+# Predictions
+tr_x = torch.Tensor(train.x.values).float().view(-1, 1, 1)
+test_x = torch.Tensor(test.x.values).float().view(-1, 1, 1)
+train_forecast = lstm.forward(x=tr_x).view(-1)
+test_forecast = lstm.forward(x=test_x).view(-1)
+all_forecast = train_forecast.tolist() + test_forecast.tolist()
+for id, tr_f in enumerate(all_forecast, 1):
+    writer.add_scalar("gru/Predictions", tr_f, id)
