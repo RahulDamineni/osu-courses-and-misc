@@ -1,3 +1,6 @@
 [submodule "deep-learning/NL2Cypher"]
 	path = deep_learning/NL2Cypher
 	url = https://github.com/ednihs-yahska/CS535_final_project.git
+[submodule "scalable_ml/anon_author_identifier"]
+	path = scalable_ml/anon_author_identifier
+	url = https://github.com/RahulDamineni/anonymous_author_matcher
